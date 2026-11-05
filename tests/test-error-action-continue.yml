@@ -1,0 +1,69 @@
+name: Test errorActionPreference continue
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      DOTNET_SYSTEM_GLOBALIZATION_INVARIANT: "1"
+      POWERSHELL_TELEMETRY_OPTOUT: "1"
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Ensure pwsh is available
+        run: |
+          set -e
+          SUDO=""; if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; fi
+          if ! command -v pwsh >/dev/null 2>&1; then
+            case "$(uname -m)" in
+              x86_64) A=x64 ;;
+              aarch64|arm64) A=arm64 ;;
+              *) echo "unsupported arch"; exit 1 ;;
+            esac
+            V=7.4.6
+            curl -fsSL -o /tmp/pwsh.tgz "https://github.com/PowerShell/PowerShell/releases/download/v${V}/powershell-${V}-linux-${A}.tar.gz"
+            $SUDO mkdir -p /opt/microsoft/powershell/7
+            $SUDO tar -xzf /tmp/pwsh.tgz -C /opt/microsoft/powershell/7
+            $SUDO chmod +x /opt/microsoft/powershell/7/pwsh
+            $SUDO ln -sf /opt/microsoft/powershell/7/pwsh /usr/local/bin/pwsh
+          fi
+          pwsh -NoLogo -NoProfile -Command '$PSVersionTable.PSVersion.ToString()'
+      - name: Install a lightweight stand-in Az module (v99.0.0) in the user module path
+        run: |
+          set -e
+          D="$HOME/.local/share/powershell/Modules/Az/99.0.0"
+          mkdir -p "$D"
+          printf "function Get-FakeAzMarker { 'fake-az-99' }\nExport-ModuleMember -Function Get-FakeAzMarker\n" > "$D/Az.psm1"
+          pwsh -NoLogo -NoProfile -Command "New-ModuleManifest -Path '$D/Az.psd1' -ModuleVersion '99.0.0' -RootModule 'Az.psm1'"
+          rm -f /tmp/azps-continue.txt
+      - id: action
+        uses: .
+        with:
+          azPSVersion: latest
+          errorActionPreference: continue
+          inlineScript: |
+            Write-Error "non-terminating error for test"
+            Set-Content -Path /tmp/azps-continue.txt -Value "continued $ErrorActionPreference"
+      - name: Assert step succeeded
+        env:
+          OUTCOME: ${{ steps.action.outcome }}
+        run: |
+          echo "outcome: $OUTCOME"
+          if [ "$OUTCOME" != "success" ]; then
+            echo "FAIL: expected success"
+            exit 1
+          fi
+          echo "PASS"
+      - name: Assert script continued past the error
+        run: |
+          if [ ! -f /tmp/azps-continue.txt ]; then
+            echo "FAIL: script did not continue after Write-Error"
+            exit 1
+          fi
+          CONTENT="$(cat /tmp/azps-continue.txt)"
+          echo "content: $CONTENT"
+          LOWER="$(echo "$CONTENT" | tr '[:upper:]' '[:lower:]')"
+          if [ "$LOWER" != "continued continue" ]; then
+            echo "FAIL: expected 'continued continue' (case-insensitive)"
+            exit 1
+          fi
+          echo "PASS"

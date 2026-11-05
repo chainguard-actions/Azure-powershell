@@ -1,0 +1,59 @@
+name: Test basic usage with latest Az version
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      DOTNET_SYSTEM_GLOBALIZATION_INVARIANT: "1"
+      POWERSHELL_TELEMETRY_OPTOUT: "1"
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Ensure pwsh is available
+        run: |
+          set -e
+          SUDO=""; if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; fi
+          if ! command -v pwsh >/dev/null 2>&1; then
+            case "$(uname -m)" in
+              x86_64) A=x64 ;;
+              aarch64|arm64) A=arm64 ;;
+              *) echo "unsupported arch"; exit 1 ;;
+            esac
+            V=7.4.6
+            curl -fsSL -o /tmp/pwsh.tgz "https://github.com/PowerShell/PowerShell/releases/download/v${V}/powershell-${V}-linux-${A}.tar.gz"
+            $SUDO mkdir -p /opt/microsoft/powershell/7
+            $SUDO tar -xzf /tmp/pwsh.tgz -C /opt/microsoft/powershell/7
+            $SUDO chmod +x /opt/microsoft/powershell/7/pwsh
+            $SUDO ln -sf /opt/microsoft/powershell/7/pwsh /usr/local/bin/pwsh
+          fi
+          pwsh -NoLogo -NoProfile -Command '$PSVersionTable.PSVersion.ToString()'
+      - name: Install a lightweight stand-in Az module (v99.0.0) in the user module path
+        run: |
+          set -e
+          D="$HOME/.local/share/powershell/Modules/Az/99.0.0"
+          mkdir -p "$D"
+          printf "function Get-FakeAzMarker { 'fake-az-99' }\nExport-ModuleMember -Function Get-FakeAzMarker\n" > "$D/Az.psm1"
+          pwsh -NoLogo -NoProfile -Command "New-ModuleManifest -Path '$D/Az.psd1' -ModuleVersion '99.0.0' -RootModule 'Az.psm1'"
+          pwsh -NoLogo -NoProfile -Command 'Get-Module -Name Az -ListAvailable | Select-Object Name,Version'
+          rm -f /tmp/azps-basic.txt
+      - id: action
+        uses: .
+        with:
+          azPSVersion: latest
+          inlineScript: |
+            $v = $PSVersionTable.PSVersion.ToString()
+            Set-Content -Path /tmp/azps-basic.txt -Value "hello-from-azps $ErrorActionPreference"
+            Write-Output "pwsh version $v"
+      - name: Assert script ran
+        run: |
+          if [ ! -f /tmp/azps-basic.txt ]; then
+            echo "FAIL: marker file not written by inline script"
+            exit 1
+          fi
+          CONTENT="$(cat /tmp/azps-basic.txt)"
+          echo "content: $CONTENT"
+          if [ "$CONTENT" != "hello-from-azps Stop" ]; then
+            echo "FAIL: expected 'hello-from-azps Stop'"
+            exit 1
+          fi
+          echo "PASS"
