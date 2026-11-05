@@ -1,0 +1,46 @@
+name: Test basic usage with latest Az version
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Set up pwsh and fake Az module
+        run: bash "$GITHUB_WORKSPACE/tests/fixtures/setup-pwsh.sh"
+      - id: action
+        uses: .
+        with:
+          azPSVersion: latest
+          inlineScript: |
+            Set-Content -Path (Join-Path $env:RUNNER_TEMP "azps-basic.txt") -Value "hello from azure powershell"
+            Set-Content -Path (Join-Path $env:RUNNER_TEMP "azps-agent.txt") -Value $env:AZURE_HTTP_USER_AGENT
+      - name: Assert script ran
+        run: |
+          f="$RUNNER_TEMP/azps-basic.txt"
+          if [ ! -f "$f" ]; then
+            echo "FAIL: script output file not found"
+            exit 1
+          fi
+          ACTUAL="$(cat "$f" | tr -d '\r')"
+          echo "actual: $ACTUAL"
+          if [ "$ACTUAL" != "hello from azure powershell" ]; then
+            echo "FAIL: unexpected content"
+            exit 1
+          fi
+          echo "PASS"
+      - name: Assert user agent was set during script execution
+        run: |
+          UA="$(cat "$RUNNER_TEMP/azps-agent.txt" | tr -d '\r')"
+          echo "user agent: $UA"
+          case "$UA" in
+            *GITHUBACTIONS_AzurePowerShellAction_*) echo "PASS" ;;
+            *) echo "FAIL: user agent missing action marker"; exit 1 ;;
+          esac
+      - name: Assert user agent reset after action
+        run: |
+          echo "AZURE_HTTP_USER_AGENT after: '$AZURE_HTTP_USER_AGENT'"
+          case "$AZURE_HTTP_USER_AGENT" in
+            *GITHUBACTIONS_AzurePowerShellAction_*) echo "FAIL: user agent not reset"; exit 1 ;;
+          esac
+          echo "PASS"

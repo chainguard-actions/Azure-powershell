@@ -1,0 +1,30 @@
+name: Test invalid azPSVersion falls back to latest
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Set up pwsh and fake Az module
+        run: bash "$GITHUB_WORKSPACE/tests/fixtures/setup-pwsh.sh"
+      - id: action
+        uses: .
+        with:
+          azPSVersion: not-a-version
+          inlineScript: |
+            Set-Content -Path (Join-Path $env:RUNNER_TEMP "azps-fallback.txt") -Value "ran"
+      - name: Assert script ran with fallback to latest
+        run: |
+          f="$RUNNER_TEMP/azps-fallback.txt"
+          if [ ! -f "$f" ]; then
+            echo "FAIL: script did not run"
+            exit 1
+          fi
+          ACTUAL="$(cat "$f" | tr -d '\r')"
+          echo "actual: $ACTUAL"
+          if [ "$ACTUAL" != "ran" ]; then
+            echo "FAIL: unexpected content"
+            exit 1
+          fi
+          echo "PASS"

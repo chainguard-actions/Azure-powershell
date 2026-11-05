@@ -1,0 +1,30 @@
+name: Test pinned Az version resolved from local folder
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Set up pwsh and fake Az module
+        run: bash "$GITHUB_WORKSPACE/tests/fixtures/setup-pwsh.sh"
+      - id: action
+        uses: .
+        with:
+          azPSVersion: '1.0.0'
+          inlineScript: |
+            $versions = (Get-Module -Name Az -ListAvailable | ForEach-Object { $_.Version.ToString() }) -join ","
+            Set-Content -Path (Join-Path $env:RUNNER_TEMP "azps-versions.txt") -Value $versions
+      - name: Assert Az 1.0.0 was available to the script
+        run: |
+          f="$RUNNER_TEMP/azps-versions.txt"
+          if [ ! -f "$f" ]; then
+            echo "FAIL: script output file not found"
+            exit 1
+          fi
+          ACTUAL="$(cat "$f" | tr -d '\r')"
+          echo "actual: $ACTUAL"
+          case ",$ACTUAL," in
+            *,1.0.0,*) echo "PASS" ;;
+            *) echo "FAIL: Az 1.0.0 not listed"; exit 1 ;;
+          esac

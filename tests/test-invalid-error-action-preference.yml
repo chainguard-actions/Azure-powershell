@@ -1,0 +1,30 @@
+name: Test invalid errorActionPreference fails
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - id: action
+        uses: .
+        continue-on-error: true
+        with:
+          azPSVersion: latest
+          errorActionPreference: bogus
+          inlineScript: |
+            Set-Content -Path (Join-Path $env:RUNNER_TEMP "azps-should-not-run.txt") -Value "ran"
+      - name: Assert action failed validation
+        env:
+          OUTCOME: ${{ steps.action.outcome }}
+        run: |
+          echo "outcome: $OUTCOME"
+          if [ "$OUTCOME" != "failure" ]; then
+            echo "FAIL: expected failure for invalid errorActionPreference"
+            exit 1
+          fi
+          if [ -f "$RUNNER_TEMP/azps-should-not-run.txt" ]; then
+            echo "FAIL: script should not have run"
+            exit 1
+          fi
+          echo "PASS"

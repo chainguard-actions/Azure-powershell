@@ -1,0 +1,35 @@
+name: Test errorActionPreference Continue proceeds past errors
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Set up pwsh and fake Az module
+        run: bash "$GITHUB_WORKSPACE/tests/fixtures/setup-pwsh.sh"
+      - id: action
+        uses: .
+        with:
+          azPSVersion: latest
+          errorActionPreference: continue
+          failOnStandardError: 'false'
+          inlineScript: |
+            Write-Error "non-fatal error"
+            Set-Content -Path (Join-Path $env:RUNNER_TEMP "azps-continue.txt") -Value $ErrorActionPreference
+            exit 0
+      - name: Assert script continued after the error
+        run: |
+          f="$RUNNER_TEMP/azps-continue.txt"
+          if [ ! -f "$f" ]; then
+            echo "FAIL: script did not continue past error"
+            exit 1
+          fi
+          ACTUAL="$(cat "$f" | tr -d '\r' | tr -d '[:space:]')"
+          echo "actual ErrorActionPreference: $ACTUAL"
+          LOWER="$(echo "$ACTUAL" | tr '[:upper:]' '[:lower:]')"
+          if [ "$LOWER" != "continue" ]; then
+            echo "FAIL: expected ErrorActionPreference 'continue' (case-insensitive)"
+            exit 1
+          fi
+          echo "PASS"
